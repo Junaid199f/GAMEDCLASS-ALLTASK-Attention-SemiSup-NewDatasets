@@ -1,0 +1,9 @@
+[91mERROR[0m: Unable to locate a modulefile for 'compilers/cuda-10.0'
+Traceback (most recent call last):
+  File "load_custom_dataset_breast.py", line 181, in <module>
+    read_custom_dataset("Dataset of Mammography with Benign Malignant Breast Masses/INbreast+MIAS+DDSM Dataset (1)/","breast","binary-class",18,19,10)
+  File "load_custom_dataset_breast.py", line 159, in read_custom_dataset
+    img_data, class_name =create_dataset(file_path)
+  File "load_custom_dataset_breast.py", line 138, in create_dataset
+    for dir1 in tqdm(os.listdir(img_folder)):
+FileNotFoundError: [Errno 2] No such file or directory: 'Dataset of Mammography with Benign Malignant Breast Masses/INbreast+MIAS+DDSM Dataset (1)/'

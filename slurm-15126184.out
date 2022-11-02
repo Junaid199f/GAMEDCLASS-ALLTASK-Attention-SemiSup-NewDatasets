@@ -1,0 +1,12 @@
+[91mERROR[0m: Unable to locate a modulefile for 'compilers/cuda-10.0'
+  0%|          | 0/2 [00:00<?, ?it/s]
+  0%|          | 0/1500 [00:00<?, ?it/s][A  0%|          | 0/1500 [00:00<?, ?it/s]
+  0%|          | 0/2 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "load_custom_dataset_brain.py", line 180, in <module>
+    read_custom_dataset("brain/","brain","binary-class",18,19,10)
+  File "load_custom_dataset_brain.py", line 159, in read_custom_dataset
+    img_data, class_name =create_dataset(file_path)
+  File "load_custom_dataset_brain.py", line 142, in create_dataset
+    image= cv2.imread( image_path, cv2.COLOR_RGB2GRAY)
+NameError: name 'cv2' is not defined

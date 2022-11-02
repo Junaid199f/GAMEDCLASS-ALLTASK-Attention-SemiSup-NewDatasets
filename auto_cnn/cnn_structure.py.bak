@@ -1,0 +1,846 @@
+import os
+import csv
+from abc import abstractmethod, ABC
+from typing import Iterable, Callable, Union, Sequence, Dict, Any, Tuple, List
+from sklearn.metrics import roc_auc_score
+import tensorflow as tf
+from tensorflow.python.keras.optimizer_v2.optimizer_v2 import OptimizerV2
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.metrics import AUC
+from tensorflow.keras import backend as K
+import os
+import warnings
+import numpy as np
+import pandas as pd
+from collections import namedtuple
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score,confusion_matrix
+import tensorflow as tf
+from tensorflow.keras.utils import to_categorical
+from sklearn.metrics import roc_curve, auc
+import os
+from abc import abstractmethod, ABC
+from typing import Iterable, Callable, Union, Sequence, Dict, Any, Tuple, List
+from sklearn.metrics import roc_auc_score
+import tensorflow as tf
+from tensorflow.python.keras.optimizer_v2.optimizer_v2 import OptimizerV2
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.metrics import AUC
+from tensorflow.keras import backend as K
+import os
+import warnings
+import numpy as np
+import pandas as pd
+from collections import namedtuple
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score,confusion_matrix
+import tensorflow as tf
+from tensorflow.keras.utils import to_categorical
+from sklearn.metrics import roc_curve, auc
+from datetime import datetime
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from visual_attention import PixelAttention2D , ChannelAttention2D,EfficientChannelAttention2D
+import cv2
+
+# Display
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+def get_img_array(img_path, size):
+    # `img` is a PIL image of size 299x299
+    img = keras.preprocessing.image.load_img(img_path, target_size=size)
+    # `array` is a float32 Numpy array of shape (299, 299, 3)
+    array = keras.preprocessing.image.img_to_array(img)
+    # We add a dimension to transform our array into a "batch"
+    # of size (1, 299, 299, 3)
+    array = np.expand_dims(array, axis=0)
+    return array
+
+def save_and_display_gradcam(img_path, heatmap,save_path, cam_path="cam.jpg", alpha=0.4):
+    print("In images folder")
+    # Load the original image
+    #img = keras.preprocessing.image.load_img(img_path)
+    #mg = keras.preprocessing.image.img_to_array(img)
+    img = img_path[0]
+
+    # Rescale heatmap to a range 0-255
+    heatmap = np.uint8(255 * heatmap)
+
+    # Use jet colormap to colorize heatmap
+    jet = cm.get_cmap("jet")
+
+    # Use RGB values of the colormap
+    jet_colors = jet(np.arange(256))[:, :3]
+    jet_heatmap = jet_colors[heatmap]
+    print("errorhere")
+    # Create an image with RGB colorized heatmap
+    jet_heatmap = keras.preprocessing.image.array_to_img(jet_heatmap)
+    jet_heatmap = jet_heatmap.resize((img.shape[1], img.shape[0]))
+    jet_heatmap = keras.preprocessing.image.img_to_array(jet_heatmap)
+    print(jet_heatmap.shape)
+    print(img_path.shape)
+    print(img.shape)
+    if (len(jet_heatmap)>2 and jet_heatmap.shape[-1]==3 and img.shape[-1]!=3):
+      print(jet_heatmap.shape)
+      print(img_path.shape)
+      print("error occured here")
+      img = cv2.cvtColor(img,cv2.COLOR_GRAY2RGB)
+    # Superimpose the heatmap on original image
+    superimposed_img = jet_heatmap * alpha + img
+    superimposed_img = keras.preprocessing.image.array_to_img(superimposed_img)
+    print("junaiddone")
+    # Save the superimposed image
+    superimposed_img.save(save_path)
+
+    # Display Grad CAM
+    display(Image(save_path))
+
+
+
+def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None):
+    print("I am called")
+    # First, we create a model that maps the input image to the activations
+    # of the last conv layer as well as the output predictions
+    #img_array = img_array[..., np.newaxis]
+    print(img_array.shape)
+    grad_model = tf.keras.models.Model(
+        [model.inputs], [model.get_layer(last_conv_layer_name).output, model.output]
+    )
+
+    # Then, we compute the gradient of the top predicted class for our input image
+    # with respect to the activations of the last conv layer
+    with tf.GradientTape() as tape:
+        last_conv_layer_output, preds = grad_model(img_array)
+        if pred_index is None:
+            pred_index = tf.argmax(preds[0])
+        class_channel = preds[:, pred_index]
+
+    # This is the gradient of the output neuron (top predicted or chosen)
+    # with regard to the output feature map of the last conv layer
+    grads = tape.gradient(class_channel, last_conv_layer_output)
+
+    # This is a vector where each entry is the mean intensity of the gradient
+    # over a specific feature map channel
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    # We multiply each channel in the feature map array
+    # by "how important this channel is" with regard to the top predicted class
+    # then sum all the channels to obtain the heatmap class activation
+    last_conv_layer_output = last_conv_layer_output[0]
+    heatmap = last_conv_layer_output @ pooled_grads[..., tf.newaxis]
+    heatmap = tf.squeeze(heatmap)
+
+    # For visualization purpose, we will also normalize the heatmap between 0 & 1
+    heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+    return heatmap.numpy()
+
+def confmatmeasures(y_true,y_score,task):
+    '''AUC metric.
+    :param y_true: the ground truth labels, shape: (n_samples, n_labels) or (n_samples,) if n_labels==1
+    :param y_score: the predicted score of each class,
+    shape: (n_samples, n_labels) or (n_samples, n_classes) or (n_samples,) if n_labels==1 or n_classes==1
+    :param task: the task of current dataset
+    '''
+    y_true = y_true.squeeze()
+    y_score = y_score.squeeze()
+    print(y_true)
+    print(y_score)
+    print(y_true.shape)
+    print(y_score.shape)
+    if task == 'multi-label, binary-class':
+      print(f1_score(y_true, y_score, average="macro"))
+      print(precision_score(y_true, y_score, average="macro"))
+      print(recall_score(y_true, y_score, average="macro"))  
+    elif task == 'binary-class':
+      print(f1_score(y_true, y_score))
+      print(precision_score(y_true, y_score))
+      print(recall_score(y_true, y_score))  
+
+def getACC(y_true, y_score, task, threshold=0.5):
+    '''Accuracy metric.
+    :param y_true: the ground truth labels, shape: (n_samples, n_labels) or (n_samples,) if n_labels==1
+    :param y_score: the predicted score of each class,
+    shape: (n_samples, n_labels) or (n_samples, n_classes) or (n_samples,) if n_labels==1 or n_classes==1
+    :param task: the task of current dataset
+    :param threshold: the threshold for multilabel and binary-class tasks
+    '''
+    y_true = y_true.squeeze()
+    y_score = y_score.squeeze()
+
+    if task == 'multi-label, binary-class':
+        y_pre = y_score > threshold
+        acc = 0
+        for label in range(y_true.shape[1]):
+            label_acc = accuracy_score(y_true[:, label], y_pre[:, label])
+            acc += label_acc
+        ret = acc / y_true.shape[1]
+    elif task == 'binary-class':
+        if y_score.ndim == 2:
+            y_score = y_score[:, -1]
+        else:
+            assert y_score.ndim == 1
+        ret = accuracy_score(y_true, y_score > threshold)
+    else:
+        ret = accuracy_score(y_true, np.argmax(y_score, axis=-1))
+
+    return ret
+
+def getPRE(y_true, y_score, task, threshold=0.5):
+    '''Accuracy metric.
+    :param y_true: the ground truth labels, shape: (n_samples, n_labels) or (n_samples,) if n_labels==1
+    :param y_score: the predicted score of each class,
+    shape: (n_samples, n_labels) or (n_samples, n_classes) or (n_samples,) if n_labels==1 or n_classes==1
+    :param task: the task of current dataset
+    :param threshold: the threshold for multilabel and binary-class tasks
+    '''
+    y_true = y_true.squeeze()
+    y_score = y_score.squeeze()
+
+    if task == 'multi-label, binary-class':
+        y_pre = y_score > threshold
+        acc = 0
+        for label in range(y_true.shape[1]):
+            label_acc = precision_score(y_true[:, label], y_pre[:, label],average='macro')
+            acc += label_acc
+        ret = acc / y_true.shape[1]
+    elif task == 'binary-class':
+        if y_score.ndim == 2:
+            y_score = y_score[:, -1]
+        else:
+            assert y_score.ndim == 1
+        ret = precision_score(y_true, y_score > threshold)
+    else:
+        ret = precision_score(y_true, np.argmax(y_score, axis=-1))
+
+    return ret
+
+def getAUC(y_true, y_score, task):
+    '''AUC metric.
+    :param y_true: the ground truth labels, shape: (n_samples, n_labels) or (n_samples,) if n_labels==1
+    :param y_score: the predicted score of each class,
+    shape: (n_samples, n_labels) or (n_samples, n_classes) or (n_samples,) if n_labels==1 or n_classes==1
+    :param task: the task of current dataset
+    '''
+    y_true = y_true.squeeze()
+    y_score = y_score.squeeze()
+
+    if task == 'multi-label, binary-class':
+        auc = 0
+        for i in range(y_score.shape[1]):
+            label_auc = roc_auc_score(y_true[:, i], y_score[:, i])
+            auc += label_auc
+        ret = auc / y_score.shape[1]
+    elif task == 'binary-class':
+        if y_score.ndim == 2:
+            y_score = y_score[:, -1]
+        else:
+            assert y_score.ndim == 1
+        ret = roc_auc_score(y_true, y_score)
+    else:
+        auc = 0
+        for i in range(y_score.shape[1]):
+            y_true_binary = (y_true == i).astype(float)
+            y_score_binary = y_score[:, i]
+            auc += roc_auc_score(y_true_binary, y_score_binary)
+        ret = auc / y_score.shape[1]
+
+    return ret
+
+
+def multi_class_auc(y_test, y_score):
+  n_classes=y_score.shape[-1]
+  # Compute ROC curve and ROC area for each class
+  fpr = dict()
+  tpr = dict()
+  roc_auc = dict()
+  for i in range(n_classes):
+    fpr[i], tpr[i], _ = roc_curve(y_test[:, i], y_score[:, i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+  
+
+  # Compute micro-average ROC curve and ROC area
+  fpr["micro"], tpr["micro"], _ = roc_curve(y_test.ravel(), y_score.ravel())
+  roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+
+  return roc_auc["micro"]
+
+def getAUC1(y_true, y_score, task, threshold=0.5):
+    '''Accuracy metric.
+    :param y_true: the ground truth labels, shape: (n_samples, n_labels) or (n_samples,) if n_labels==1
+    :param y_score: the predicted score of each class,
+    shape: (n_samples, n_labels) or (n_samples, n_classes) or (n_samples,) if n_labels==1 or n_classes==1
+    :param task: the task of current dataset
+    :param threshold: the threshold for multilabel and binary-class tasks
+    '''
+    y_true = y_true.squeeze()
+    y_score = y_score.squeeze()
+
+    if task == 'multi-label, binary-class':
+        y_pre = y_score > threshold
+        acc = 0
+        for label in range(y_true.shape[1]):
+            label_acc = roc_auc_score(y_true[:, label], y_pre[:, label],average='macro')
+            acc += label_acc
+        ret = acc / y_true.shape[1]
+    elif task == 'binary-class':
+        if y_score.ndim == 2:
+            y_score = y_score[:, -1]
+        else:
+            assert y_score.ndim == 1
+        ret = roc_auc_score(y_true, y_score > threshold)
+    else:
+        ret = roc_auc_score(y_true, np.argmax(y_score, axis=-1))
+
+    return ret  
+
+def getREC(y_true, y_score, task, threshold=0.5):
+    '''Accuracy metric.
+    :param y_true: the ground truth labels, shape: (n_samples, n_labels) or (n_samples,) if n_labels==1
+    :param y_score: the predicted score of each class,
+    shape: (n_samples, n_labels) or (n_samples, n_classes) or (n_samples,) if n_labels==1 or n_classes==1
+    :param task: the task of current dataset
+    :param threshold: the threshold for multilabel and binary-class tasks
+    '''
+    y_true = y_true.squeeze()
+    y_score = y_score.squeeze()
+
+    if task == 'multi-label, binary-class':
+        y_pre = y_score > threshold
+        acc = 0
+        for label in range(y_true.shape[1]):
+            label_acc = recall_score(y_true[:, label], y_pre[:, label],average='macro')
+            acc += label_acc
+        ret = acc / y_true.shape[1]
+    elif task == 'binary-class':
+        if y_score.ndim == 2:
+            y_score = y_score[:, -1]
+        else:
+            assert y_score.ndim == 1
+        ret = recall_score(y_true, y_score > threshold)
+    else:
+        ret = recall_score(y_true, np.argmax(y_score, axis=-1))
+
+    return ret
+
+def getF1S(y_true, y_score, task, threshold=0.5):
+    '''Accuracy metric.
+    :param y_true: the ground truth labels, shape: (n_samples, n_labels) or (n_samples,) if n_labels==1
+    :param y_score: the predicted score of each class,
+    shape: (n_samples, n_labels) or (n_samples, n_classes) or (n_samples,) if n_labels==1 or n_classes==1
+    :param task: the task of current dataset
+    :param threshold: the threshold for multilabel and binary-class tasks
+    '''
+    y_true = y_true.squeeze()
+    y_score = y_score.squeeze()
+
+    if task == 'multi-label, binary-class':
+        y_pre = y_score > threshold
+        acc = 0
+        for label in range(y_true.shape[1]):
+            label_acc = f1_score(y_true[:, label], y_pre[:, label],average='macro')
+            acc += label_acc
+        ret = acc / y_true.shape[1]
+    elif task == 'binary-class':
+        if y_score.ndim == 2:
+            y_score = y_score[:, -1]
+        else:
+            assert y_score.ndim == 1
+        ret = f1_score(y_true, y_score > threshold)
+    else:
+        ret = f1_score(y_true, np.argmax(y_score, axis=-1))
+
+    return ret
+
+class Layer(ABC):
+    @abstractmethod
+    def tensor_rep(self, inputs: tf.keras.layers.Layer) -> tf.keras.layers.Layer:
+        """
+        Returns the keras Layer representation of the object
+        :param inputs: The previous layer to be passed in as input for the next
+        :return: the keras Layer representation of the object
+        """
+        pass
+
+
+
+
+class MulticlassAUC(tf.keras.metrics.AUC):
+    """AUC for a single class in a muliticlass problem.
+
+    Parameters
+    ----------
+    pos_label : int
+        Label of the positive class (the one whose AUC is being computed).
+
+    from_logits : bool, optional (default: False)
+        If True, assume predictions are not standardized to be between 0 and 1.
+        In this case, predictions will be squeezed into probabilities using the
+        softmax function.
+
+    sparse : bool, optional (default: True)
+        If True, ground truth labels should be encoded as integer indices in the
+        range [0, n_classes-1]. Otherwise, ground truth labels should be one-hot
+        encoded indicator vectors (with a 1 in the true label position and 0
+        elsewhere).
+
+    **kwargs : keyword arguments
+        Keyword arguments for tf.keras.metrics.AUC.__init__(). For example, the
+        curve type (curve='ROC' or curve='PR').
+    """
+
+    def __init__(self, pos_label, from_logits=False, sparse=True, **kwargs):
+        super().__init__(**kwargs)
+
+        self.pos_label = pos_label
+        self.from_logits = from_logits
+        self.sparse = sparse
+
+    def update_state(self, y_true, y_pred, **kwargs):
+        """Accumulates confusion matrix statistics.
+
+        Parameters
+        ----------
+        y_true : tf.Tensor
+            The ground truth values. Either an integer tensor of shape
+            (n_examples,) (if sparse=True) or a one-hot tensor of shape
+            (n_examples, n_classes) (if sparse=False).
+
+        y_pred : tf.Tensor
+            The predicted values, a tensor of shape (n_examples, n_classes).
+
+        **kwargs : keyword arguments
+            Extra keyword arguments for tf.keras.metrics.AUC.update_state
+            (e.g., sample_weight).
+        """
+        if self.sparse:
+            y_true = tf.math.equal(y_true, self.pos_label)
+            y_true = tf.squeeze(y_true)
+        else:
+            y_true = y_true[..., self.pos_label]
+
+        if self.from_logits:
+            y_pred = tf.nn.softmax(y_pred, axis=-1)
+        y_pred = y_pred[..., self.pos_label]
+
+        super().update_state(y_true, y_pred, **kwargs)
+
+class SkipLayer(Layer):
+    GROUP_NUMBER = 1
+
+    def __init__(self, feature_size1: int,
+                 feature_size2: int,
+                 kernel: Tuple[int, int] = (3, 3),
+                 stride: Tuple[int, int] = (1, 1),
+                 convolution: str = 'same'):
+        """
+        Initializes the parameters for the Skip Layer
+        The Skip layer comprises of:
+        1. A convolution:
+            * filter size: feature_size1
+            * kernel size: kernel
+            * stride size: stride
+        2. A Batch Normalization
+        3. A ReLU activation
+        4. A convolution:
+            * filter size: feature_size2
+            * kernel size: kernel
+            * stride size: stride
+        5. A Batch Normalization
+        6. Inputs + previous output (the batch norm)
+        7. A ReLU activation
+        :param feature_size1: the filter size of the first convolution, should be a power of 2
+        :param feature_size2: the filter size of the second convolution, should be a power of 2
+        :param kernel: the kernel size for all the convolutions, default: (3, 3)
+        :param stride: the stride size for all convolutions, default: (1, 1)
+        :param convolution: the padding type for all convolution, should be either "valid" or "same"
+        """
+        self.convolution = convolution
+        self.stride = stride
+        self.kernel = kernel
+        self.feature_size2 = feature_size2
+        self.feature_size1 = feature_size1
+        #self.conv_layers_names=[]
+
+    def tensor_rep(self, inputs: tf.keras.layers.Layer) -> tf.keras.layers.Activation:
+        print("SkipLayer Class called")
+        group_name = f'SkipLayer_{SkipLayer.GROUP_NUMBER}'
+        SkipLayer.GROUP_NUMBER += 1
+
+        skip_layer = tf.keras.layers.Conv2D(self.feature_size1, self.kernel, self.stride, self.convolution,
+                                            name=f'{group_name}/Conv1')(inputs)
+
+        # FIXME is it the activation first or the batch norm?
+        skip_layer = tf.keras.layers.BatchNormalization(name=f'{group_name}/BatchNorm1')(skip_layer)
+        skip_layer = tf.keras.layers.Activation('relu', name=f'{group_name}/ReLU1')(skip_layer)
+
+        skip_layer = tf.keras.layers.Conv2D(self.feature_size2, self.kernel, self.stride, self.convolution,
+                                            name=f'{group_name}/Conv2')(skip_layer)
+        skip_layer = EfficientChannelAttention2D(skip_layer.shape[-1])(skip_layer)   #Attention Layer. Remove this layer if it doesn't work                                
+        skip_layer = tf.keras.layers.BatchNormalization(name=f'{group_name}/BatchNorm2')(skip_layer)
+
+        # Makes sure that the dimensionality at the skip layers are the same
+        inputs = tf.keras.layers.Conv2D(self.feature_size2, (1, 1), self.stride, name=f'{group_name}/Reshape')(inputs)
+        #self.conv_layers_names.append(f'{group_name}/Reshape')
+        outputs = tf.keras.layers.add([inputs, skip_layer], name=f'{group_name}/Add')
+        return tf.keras.layers.Activation('relu', name=f'{group_name}/ReLU2')(outputs)
+
+    def __repr__(self) -> str:
+        return f'{self.feature_size1}-{self.feature_size2}'
+
+
+class PoolingLayer(Layer):
+    pooling_choices = {
+        'max': tf.keras.layers.MaxPool2D,
+        'mean': tf.keras.layers.AveragePooling2D,
+        'gavg': tf.keras.layers.GlobalAveragePooling2D,
+        'gmaxpool': tf.keras.layers.GlobalMaxPool2D
+    }
+
+    def __init__(self, pooling_type: str, kernel: Tuple[int, int] = (2, 2), stride: Tuple[int, int] = (2, 2)):
+        """
+        A Pooling layer, this is either a MaxPooling or a AveragePooling layer
+        :param pooling_type: either "max" or "mean", this determines the type of pooling layer
+        :param kernel: the kernel size for the pooling layer, default: (2, 2)
+        :param stride: the stride size for the pooling layer, default: (2, 2)
+        """
+
+        self.stride = stride
+        self.kernel = kernel
+        self.pooling_type = pooling_type
+
+    def tensor_rep(self, inputs: tf.keras.layers.Layer) -> Union[
+        tf.keras.layers.MaxPool2D, tf.keras.layers.AveragePooling2D,tf.keras.layers.GlobalAveragePooling2D,tf.keras.layers.GlobalMaxPool2D]:
+        return PoolingLayer.pooling_choices[self.pooling_type](pool_size=self.kernel, strides=self.stride)(inputs)
+
+    def __repr__(self) -> str:
+        return self.pooling_type
+
+def recall(y_true, y_pred):
+  y_true = K.ones_like(y_true) 
+  true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+  all_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+  recall = true_positives / (all_positives + K.epsilon())
+  return recall
+def precision(y_true, y_pred):
+  y_true = K.ones_like(y_true) 
+  true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+  predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+  precision = true_positives / (predicted_positives + K.epsilon())
+  return precision
+def f1_score(y_true, y_pred):
+  precision_m = precision(y_true, y_pred)
+  recall_m = recall(y_true, y_pred)
+  return 2*((precision_m*recall_m)/(precision_m+recall_m+K.epsilon()))
+
+class CNN:
+
+      
+    def __init__(self, input_shape: Sequence[int],
+                 type_problem : str,
+                 dataset_n:str,
+                 output_function: Callable[[tf.keras.layers.Layer], tf.keras.layers.Layer],
+                 layers: Sequence[Layer],
+                 optimizer: OptimizerV2 = None,
+                 loss: Union[str, tf.keras.losses.Loss] = 'sparse_categorical_crossentropy',
+                 metrics: Iterable[str] = (['accuracy']),
+                 load_if_exist: bool = True,
+                 extra_callbacks: Iterable[tf.keras.callbacks.Callback] = None,
+                 logs_dir: str = './logs/train_data',
+                 checkpoint_dir: str = './checkpoints') -> None:
+        """
+        Initializes the CNN.
+        Example for an output layer function, that works with one hot encoded outputs:
+        >>> def output_function(inputs):
+        ...    out = tf.keras.layers.Flatten()(inputs) # flattens the input since it is going to be 3D tensor
+        ...
+        ...    return tf.keras.layers.Dense(10, activation='softmax')(out) # this is the final output layer
+        >>> CNN((28, 28, 1), output_function, []) # passes the function in without calling it
+        :param input_shape: the input shape of the CNN input must be at least a size of 2
+        :param output_function: the output function to attach at the end of the layers, this will define what is outputted by the CNN
+        :param layers: the layer list to define the CNN
+        :param optimizer: the type of optimizer to use when training the CNN
+        :param loss: the loss function to use when training the CNN
+        :param metrics: the metric to use to quantify how good the CNN is
+        :param load_if_exist: if the model already in checkpoint_dir use those weights
+        :param extra_callbacks: any other other callbacks to use when training the mode, this could be a learning rate scheduler
+        :param logs_dir: the directory where to store the Tensorboard logs
+        :param checkpoint_dir: the directory where to story the model checkpoints
+        """
+        self.checkpoint_dir = checkpoint_dir
+        self.dataset_n=dataset_n
+        self.type_problem= type_problem
+        self.logs_dir = logs_dir
+        self.F1_Score=None
+        self.conv_layer_names=[]
+        self.load_if_exist = load_if_exist
+        self.loss = loss
+        if type_problem == 'multi-label binary-class':
+          self.loss = 'sparse_categorical_crossentropy'
+        else:
+           self.loss = 'binary_crossentropy'
+        if optimizer is None:
+            self.optimizer = tf.keras.optimizers.Adam()
+        else:
+            self.optimizer = optimizer
+
+        self.metrics = metrics
+        self.output_function = output_function
+        self.input_shape = input_shape
+        if layers is None:
+            self.layers = []
+        else:
+            self.layers = layers
+
+        self.hash = self.generate_hash()
+
+        self.model: tf.keras.Model = None
+
+        # TODO change this so that the checkpoint works no matter when you change layer
+        self.checkpoint_filepath = f'{self.checkpoint_dir}/model_{self.hash}/model_{self.hash}'
+        model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+            filepath=self.checkpoint_filepath,
+            save_weights_only=True,
+            monitor='val_accuracy',
+            mode='max',
+            save_best_only=True)
+
+        #tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=f"{self.logs_dir}/model_{self.hash}",
+                                                              #update_freq='batch', histogram_freq=1)
+
+        self.callbacks = [model_checkpoint_callback]
+
+        #if extra_callbacks is not None:
+            #self.callbacks.extend(extra_callbacks)
+
+    def generate(self, data: Dict[str, Any]) -> tf.keras.Model:
+        """
+        Generate the tf.keras.Model of the CNN based on the layers list, the loss function, the optimizer and the metrics
+        :return: the compiled tf.keras.Model
+        """
+
+        print(self.layers)
+
+        if self.model is None:
+            tf.keras.backend.clear_session()  # Fixes graph appending
+            SkipLayer.GROUP_NUMBER = 1
+            inputs = tf.keras.Input(shape=self.input_shape)
+
+            outputs = inputs
+
+            for i, layer in enumerate(self.layers):
+                outputs = layer.tensor_rep(outputs)
+            outputs = self.output_function(outputs)
+
+            self.model = tf.keras.Model(inputs=inputs, outputs=outputs)
+            print(self.loss)
+            print(outputs)
+            print(self.hash)
+            #print(cnn_layers_name)
+            #print(self.layers.conv_layers_names)
+
+            self.model.summary()
+            for layer in self.model.layers:
+              if 'Conv' in layer.name:
+                self.conv_layer_names.append(layer.name)
+            print(self.conv_layer_names)
+            print(data['x_train'].shape)
+            img=data['x_train'][0]
+            if self.type_problem=='binary-class':
+              img=img[..., np.newaxis]
+            img=np.expand_dims(img, axis=0)
+            print(img.shape)
+            plt.imshow(data['x_train'][0])
+            print(data['x_train'][0].shape)
+            preds=self.model.predict(img)
+            print("junaid")
+            print(preds.shape)
+            if len(self.conv_layer_names)>0:
+              # Generate class activation heatmap
+              print(img.shape)
+              print(self.conv_layer_names[-1])
+              heatmap = make_gradcam_heatmap(img, self.model, self.conv_layer_names[-1])
+              # Display heatmap
+              plt.matshow(heatmap)
+              plt.show()
+              img_path="cam.jpg"
+              save_path="model_plot/"+self.dataset_n+self.hash+'_heatmap.png'
+              print(save_path)
+              save_and_display_gradcam(img, heatmap,save_path)
+
+            dot_img_file = "model_plot/"+self.dataset_n+self.hash+'.png'
+            tf.keras.utils.plot_model(self.model, to_file=dot_img_file, show_shapes=True)
+            print("\n Number of paramters are: ", self.model.count_params())
+            self.model.compile(self.optimizer, loss=self.loss, metrics=self.metrics)
+
+            SkipLayer.GROUP_NUMBER = 1
+        return self.model
+    def evaluate(self, data: Dict[str, Any],dataset_name,type_problem, batch_size: int = 64) -> Tuple[float, float]:
+        """
+        Evaluates the model, this calculates the accuracy of the model on the test data
+        :param data: the data to test on, uses the 'x_test' and the 'y_test' values of data to test on
+        :param batch_size: the batch size for the testing
+        :return: the loss and the accuracy of the model on the test data
+        """
+        print("Evaluation Results")
+        with open(dataset_name, 'a', encoding='UTF8', newline='') as f:
+          results=[]
+          preds=self.model.predict(data['x_test'])
+          if self.type_problem=='multi-label binary-class':
+            #labels=np.argmax(data['y_test'],axis=1)
+            #preds = np.argmax(self.model.predict(data['x_test']),axis=1)
+            #print("is called")
+            labels=to_categorical(data['y_test'])
+            AUC=multi_class_auc(labels,preds)
+            print("AUC:",AUC)
+            #print("AUC:",getAUC(labels,preds,type_problem))
+            #print(labels.shape)
+            #print(preds.shape)
+            #print(precision_score(labels,preds,average='weighted'))
+            y_pred=self.model.predict(data['x_test']) 
+            y_pred=np.argmax(y_pred, axis=1)
+            y_test=np.argmax(labels, axis=1)
+            #cm = confusion_matrix(y_test, y_pred)
+            #print(cm)
+            print("Precision:",precision_score(y_test,y_pred,average='weighted'))
+            print("Accuracy:",accuracy_score(y_test,y_pred))
+            print("Recall:",recall_score(y_test,y_pred,average='weighted'))
+            #print("AUC:",getAUC1(labels.reshape(-1),preds.reshape(-1),type_problem))
+            PRE=precision_score(y_test,y_pred,average='weighted')
+            REC=recall_score(y_test,y_pred,average='weighted')
+            F1S= 2*(PRE*REC)/(PRE+REC)
+            print("F1 Score:",F1S)
+            self.F1_Score=F1S
+            results.append(accuracy_score(y_test,y_pred))    
+            results.append(PRE)
+            results.append(REC)
+            results.append(F1S)
+            print(dataset_name)
+            print("junaid")
+            results.append(AUC)
+            print(results)
+            print("Params:",self.model.count_params())
+            print("Layers:",self.layers)
+            results.append(str(self.layers))
+            results.append(self.model.count_params())
+            results.append(len(self.model.layers))
+            # datetime object containing current date and time
+            now = datetime.now()
+            print("now =", now)
+            # dd/mm/YY H:M:S
+            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+            results.append(dt_string)
+            #writer = csv.writer(f)
+            #writer.writerow(results)
+          else:
+            labels=data['y_test']
+            print(labels.shape)
+            print(preds.shape)
+            print("Accuracy:",getACC(labels,preds,type_problem))
+            print("AUC:",getAUC(labels,preds,type_problem))
+            print("Precision:",getPRE(labels,preds,type_problem))
+            print("Recall:",getREC(labels,preds,type_problem))
+            PRE=getPRE(labels,preds,type_problem)
+            REC=getREC(labels,preds,type_problem)
+            F1S= 2*(PRE*REC)/(PRE+REC)
+            self.F1_Score=F1S
+            print("F1 Score:",F1S)
+            results.append(getACC(labels,preds,type_problem))  
+            results.append(PRE)
+            results.append(REC)
+            results.append(F1S)
+            results.append(getAUC(labels,preds,type_problem))
+            print("Layers:",self.layers)
+            results.append(str(self.layers))
+            print("Params:",self.model.count_params())
+            results.append(self.model.count_params())
+            results.append(len(self.model.layers))
+            # datetime object containing current date and time
+            now = datetime.now()
+            print("now =", now)
+            # dd/mm/YY H:M:S
+            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+            results.append(dt_string)
+            #writer = csv.writer(f)
+            #writer.writerow(results)
+            #print(confmatmeasures(labels,preds,type_problem))
+          print(f)
+          print("junaid")
+          print(results)
+          writer = csv.writer(f,)
+          writer.writerow(results)
+          print("working")
+          #f.close()
+        return self.model.evaluate(data['x_test'], data['y_test'], batch_size=batch_size)
+
+    def train(self, data: Dict[str, Any], batch_size: int = 64, epochs: int = 1) -> None:
+        """
+        Trains the defined model, cnn.generate() must be called before this function can run.
+        The model will split the training data with 20% going on validation, the model will save the one with the
+        best validation score after each epoch.
+        If the model already exists in the checkpoint_dir defined then it will just load the weights saved instead.
+        When training the model uses the TensorBoard and the ModelCheckpoint callbacks to log and save checkpoints of
+        the model automatically. You are also able to add any other callbacks through the extra_callback parameters in the CNN __init__
+        :param data: the data to train the network on, this is a dict with parameters 'x_train' and 'y_train' which contain the data that will be used in the training period of the model.
+        :param batch_size: the batch size to train the network on
+        :param epochs: the number of epochs to train the network
+        """
+
+        #if self.load_if_exist and os.path.exists(f'{self.checkpoint_dir}/model_{self.hash}/'):
+            #self.model.load_weights(self.checkpoint_filepath)
+        #else:
+            #if self.model is not None:
+
+               
+               # compute quantities required for featurewise normalization
+               # (std, mean, and principal components if ZCA whitening is applied)
+        print(data['x_train'].shape)
+        print(data['y_train'].shape)
+        self.model.fit(data['x_train'], data['y_train'],epochs=epochs,
+                               validation_data=(data['x_val'], data['y_val']),callbacks = self.callbacks)
+
+
+    def generate_hash(self) -> str:
+        """
+        Generates the hash of the CNN, this is based on the layers that it contains:
+        A SkipLayer is represented as 'feature_size1-feature_size2'
+        A PoolingLayer is represented as 'pooling_type'
+        Example:
+        '32-32-mean-max-256-32'
+        :return: the hash of the CNN based on its layer structure
+        """
+
+        return '-'.join(map(str, self.layers))
+
+    def __repr__(self) -> str:
+        return self.hash
+
+
+def get_layer_from_string(layer_definition: str) -> List[Layer]:
+    """
+    Generate the layers list from the string hash, so that it can be passed into a CNN.
+    Example:
+    '128-64-mean-max-32-32'
+    Would be converted to:
+    [SkipLayer(128, 64), PoolingLayer('mean'), PoolingLayer('max'), SkipLayer(32, 32)]
+    A SkipLayer is represented as 'feature_size1-feature_size2'
+    A PoolingLayer is represented as 'pooling_type'
+    :param layer_definition: the string representation of the layers
+    :return: the list of the converted layers
+    """
+
+    layers_str: list = layer_definition.split('-')
+
+    layers = []
+
+    while len(layers_str) > 0:
+        if layers_str[0].isdigit():
+            f = SkipLayer(int(layers_str[0]), int(layers_str[0 + 1]))
+            layers_str.pop(0)
+            layers_str.pop(0)
+        else:
+            f = PoolingLayer(layers_str[0])
+            layers_str.pop(0)
+        layers.append(f)
+
+    return layers
